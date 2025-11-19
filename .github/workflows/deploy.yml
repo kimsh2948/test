@@ -1,28 +1,27 @@
 name: SpringBoot CI/CD for ECS (GitOps)
 
-permissions:
-  security-events: write
-  contents: read
-
 # main 브랜치에 푸시될 때 워크플로우 시작
 on:
   workflow_dispatch:
     inputs:
-      project_name:
+      image_tag:
+        description: "배포할 Docker 이미지 태그 (기본: Git SHA)"
         type: string
-        required: true
-      container_port:
-        type: string
-        default: "8080"
+        default: ""
+
+permissions:
+  security-events: write
+  contents: read
 
 env:
   # 💡 AWS/ECR 설정 변수 (사용자 환경에 맞게 변경 필요)
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: cat-demo-backend
-  ECS_CLUSTER_NAME: arn:aws:ecs:ap-northeast-2:277679348386:cluster/cat-demo-cluster
-  ECS_SERVICE_NAME: arn:aws:ecs:ap-northeast-2:277679348386:service/cat-demo-cluster/cat-demo-backend-service
-  TASK_DEFINITION_PATH: your-task-definition.json # ECS 태스크 정의 파일 경로
+  ECS_CLUSTER_NAME: cat-demo-cluster
+  ECS_SERVICE_NAME: cat-demo-backend-service
+  TASK_DEFINITION_PATH: task-definitions/backend-task-definition.json
   IMAGE_TAG: ${{ github.sha }} # 이미지 태그로 커밋 SHA 사용
+  CONTAINER_NAME: backend
 
 jobs:
   build-and-deploy:
@@ -68,7 +67,7 @@ jobs:
 
       # Snyk Open Source: SCA 분석 (라이브러리 취약점)
       - name: Snyk Open Source (SCA) Scan
-        run: snyk test --all-projects
+        run: snyk test --all-projects --sarif-file-output=snyk-sca-report.sarif
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         
@@ -95,32 +94,35 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
         
-      # Docker 이미지 빌드 및 태그 지정 (Tag: latest, SHA)
+      # Docker 이미지 빌드 및 태그 지정 
       - name: Build, tag, and push image to ECR
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # Spring Boot JAR 빌드
-          ./gradlew bootJar
-          
-          # Dockerfile은 JAR 파일과 동일 디렉토리에 있다고 가정
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          
-          # ECR에 이미지 푸시
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          if [ -z "$IMAGE_TAG" ]; then
+            IMAGE_TAG="${GITHUB_SHA}"
+          fi
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG 
+
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
-      # 6. ECS 태스크 정의 업데이트 (Deploy)
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ECS 태스크 정의 업데이트 (Deploy)
       - name: Fill in the new image ID in the ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: ${{ env.TASK_DEFINITION_PATH }}
-          container-name: your-container-name # 태스크 정의 파일의 컨테이너 이름 (필수)
-          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
           
-      # 7. ECS 서비스 업데이트 및 배포
+      # ECS 서비스 업데이트 및 배포
       - name: Deploy to ECS service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
@@ -128,3 +130,16 @@ jobs:
           service: ${{ env.ECS_SERVICE_NAME }}
           cluster: ${{ env.ECS_CLUSTER_NAME }}
           wait-for-service-stability: true
+
+      # -----------------------------
+      # Deployment Summary 출력
+      # -----------------------------
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 ECS Backend Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster**: ${{ env.ECS_CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service**: ${{ env.ECS_SERVICE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Container**: ${{ env.CONTAINER_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Domain**: https://api-board.go-to-learn.net" >> $GITHUB_STEP_SUMMARY
