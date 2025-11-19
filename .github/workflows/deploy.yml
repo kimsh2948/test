@@ -1,4 +1,4 @@
-name: SpringBoot Backend Deploy (GitOps)
+name: Cat-Backend Deploy
 
 on:
   workflow_dispatch:

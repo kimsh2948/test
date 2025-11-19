@@ -68,6 +68,7 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Docker 이미지 빌드 및 태그 지정 
       - name: Build, tag, and push image to ECR
         id: build-image
         env:
@@ -80,7 +81,6 @@ jobs:
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG 
 
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
