@@ -50,9 +50,10 @@ jobs:
       # ---------------------------
       # Snyk Code: SAST 분석 (자체 코드)
       - name: Snyk Code (SAST) Scan
-        uses: snyk/actions/code@master
+        uses: snyk/actions/node@master
         with:
-          args: --all-projects --sarif-output=snyk-code-report.sarif
+          command: code test
+          args: --sarif-file-output=snyk-code-report.sarif
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
