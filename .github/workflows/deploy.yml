@@ -1,87 +1,35 @@
-name: SpringBoot CI/CD for ECS (GitOps)
+name: SpringBoot Backend Deploy (GitOps)
 
-# main 브랜치에 푸시될 때 워크플로우 시작
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "배포할 Docker 이미지 태그 (기본: Git SHA)"
+        description: "배포할 Docker 이미지 태그(필수)"
         type: string
-        default: ""
+        required: true
 
 permissions:
-  security-events: write
   contents: read
+  security-events: write
 
 env:
-  # 💡 AWS/ECR 설정 변수 (사용자 환경에 맞게 변경 필요)
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: cat-demo-backend
   ECS_CLUSTER_NAME: cat-demo-cluster
   ECS_SERVICE_NAME: cat-demo-backend-service
   TASK_DEFINITION_PATH: task-definitions/backend-task-definition.json
-  IMAGE_TAG: ${{ github.sha }} # 이미지 태그로 커밋 SHA 사용
+  IMAGE_TAG: ${{ github.sha }}
   CONTAINER_NAME: backend
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-    
-    # 환경 변수 및 Secrets 설정
     environment: production 
 
     steps:
-    
-      # 1. 코드 체크아웃 (Checkout Code)
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Java 환경 설정
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'gradle'
-
-      # 3. 테스트 (Test)
-      - name: Run Unit Tests
-        run: ./gradlew test
-
-      # ---------------------------
-      # 4. 보안 점검 (SAST by Snyk) 🛡️
-      # ---------------------------
-      # Snyk Code: SAST 분석 (자체 코드)
-
-      - name: Snyk Code (SAST) Scan
-        uses: snyk/actions/node@master
-        with:
-          command: code test
-          args: --sarif-file-output=snyk-code-report.sarif
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      
-      # Install Snyk CLI
-      - name: Install Snyk CLI
-        run: npm install -g snyk
-
-      # Snyk Open Source: SCA 분석 (라이브러리 취약점)
-      - name: Snyk Open Source (SCA) Scan
-        run: snyk test --all-projects --sarif-file-output=snyk-sca-report.sarif
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        
-      # 결과 보고서를 GitHub Security Tab에 업로드 
-      - name: Upload SARIF file to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: snyk-code-report.sarif
-
-      # ---------------------------
-      # 5. ECR/ECS 설정 및 배포
-      # ---------------------------
-
-      # AWS 자격 증명 설정 (IAM Role 또는 Secrets 사용)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -89,29 +37,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ECR 로그인
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        
-      # Docker 이미지 빌드 및 태그 지정 
-      - name: Build, tag, and push image to ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          IMAGE_TAG="${{ inputs.image_tag }}"
-          if [ -z "$IMAGE_TAG" ]; then
-            IMAGE_TAG="${GITHUB_SHA}"
-          fi
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG 
-
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       # ECS 태스크 정의 업데이트 (Deploy)
       - name: Fill in the new image ID in the ECS task definition
@@ -120,8 +48,8 @@ jobs:
         with:
           task-definition: ${{ env.TASK_DEFINITION_PATH }}
           container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
-          
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ inputs.image_tag }}
+
       # ECS 서비스 업데이트 및 배포
       - name: Deploy to ECS service
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
@@ -131,9 +59,7 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER_NAME }}
           wait-for-service-stability: true
 
-      # -----------------------------
       # Deployment Summary 출력
-      # -----------------------------
       - name: Deployment Summary
         run: |
           echo "## 🚀 ECS Backend Deployment Successful!" >> $GITHUB_STEP_SUMMARY
@@ -141,5 +67,5 @@ jobs:
           echo "- **Cluster**: ${{ env.ECS_CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Service**: ${{ env.ECS_SERVICE_NAME }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Container**: ${{ env.CONTAINER_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Domain**: https://api-board.go-to-learn.net" >> $GITHUB_STEP_SUMMARY
