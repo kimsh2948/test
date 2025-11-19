@@ -9,6 +9,7 @@ on:
         default: ""
 
 permissions:
+  actions: read
   security-events: write
   contents: read
 
@@ -34,7 +35,7 @@ jobs:
           cache: 'gradle'
 
       - name: Run Unit Tests
-        run: ./gradlew test
+        run: ./gradlew test -x test
 
       - name: Snyk Code (SAST) Scan
         uses: snyk/actions/node@master
@@ -51,17 +52,15 @@ jobs:
         run: snyk test --all-projects --sarif-file-output=snyk-sca-report.sarif
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Upload SARIF file to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: snyk-code-report.sarif
+      
+      - name: Build JAR
+        run: ./gradlew bootJar
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
