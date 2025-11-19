@@ -1,5 +1,9 @@
 name: SpringBoot CI/CD for ECS (GitOps)
 
+permissions:
+  security-events: write
+  contents: read
+
 # main 브랜치에 푸시될 때 워크플로우 시작
 on:
   workflow_dispatch:
@@ -70,7 +74,7 @@ jobs:
         
       # 결과 보고서를 GitHub Security Tab에 업로드 
       - name: Upload SARIF file to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: snyk-code-report.sarif
 
