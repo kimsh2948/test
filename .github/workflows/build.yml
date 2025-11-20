@@ -61,7 +61,7 @@ jobs:
         id: build-jar
         run: |
           ./gradlew bootJar
-          echo "image_tag=${{env.IMAGE_TAG}}"" >> $GITHUB_OUTPUT
+          echo "image_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT
       
       - name: Send webhook with github-script
         uses: actions/github-script@v7
