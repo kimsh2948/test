@@ -1,6 +1,9 @@
 name: Cat-Backend Build 
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       image_tag:
@@ -55,13 +58,16 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       
       - name: Build JAR
-        run: ./gradlew bootJar
+        id: build-jar
+        run: |
+          ./gradlew bootJar
+          echo "image_tag=${{env.IMAGE_TAG}}"" >> $GITHUB_OUTPUT
       
       - name: Send webhook with github-script
         uses: actions/github-script@v7
         env:
           SERVICE_NAME: ${{ github.event.repository.name }}
-          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          IMAGE_TAG: ${{ steps.build-jar.outputs.image_tag }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
           COMMIT_HASH: ${{ github.sha }}
           CICD_WEBHOOK: ${{ env.CICD_WEBHOOK }}
